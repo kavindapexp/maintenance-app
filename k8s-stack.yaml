@@ -1,0 +1,102 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: postgres-init-script
+data:
+  init.sql: |
+    CREATE TABLE IF NOT EXISTS maintenance_logs (
+        id SERIAL PRIMARY KEY,
+        title VARCHAR(100) NOT NULL,
+        status VARCHAR(50) NOT NULL,
+        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+    );
+    INSERT INTO maintenance_logs (title, status) VALUES ('Initial System Check', 'Completed');
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: postgres-db
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: postgres-db
+  template:
+    metadata:
+      labels:
+        app: postgres-db
+    spec:
+      containers:
+      - name: postgres
+        image: postgres:16-alpine
+        env:
+        - name: POSTGRES_DB
+          value: maintenancedb
+        - name: POSTGRES_USER
+          value: postgres
+        - name: POSTGRES_PASSWORD
+          value: postgres
+        ports:
+        - containerPort: 5432
+        volumeMounts:
+        - name: init-volume
+          mountPath: /docker-entrypoint-initdb.d
+      volumes:
+      - name: init-volume
+        configMap:
+          name: postgres-init-script
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: postgres-service
+spec:
+  selector:
+    app: postgres-db
+  ports:
+    - protocol: TCP
+      port: 5432
+      targetPort: 5432
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: maintenance-app
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: maintenance-app
+  template:
+    metadata:
+      labels:
+        app: maintenance-app
+    spec:
+      containers:
+      - name: app
+        image: kavindapexp/maintenance-app:latest
+        imagePullPolicy: Always
+        env:
+        - name: DB_HOST
+          value: postgres-service
+        - name: DB_USER
+          value: postgres
+        - name: DB_PASSWORD
+          value: postgres
+        - name: DB_NAME
+          value: maintenancedb
+        ports:
+        - containerPort: 8080
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: maintenance-app-service
+spec:
+  type: NodePort
+  selector:
+    app: maintenance-app
+  ports:
+    - protocol: TCP
+      port: 8080
+      targetPort: 8080
